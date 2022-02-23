@@ -1,0 +1,16 @@
+[package]
+name = "pi_graph"
+version = "0.1.0"
+authors = ["zmythleo <zmythleo@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+pi_hash = {path="../pi_hash"}
+pi_share = {path="../pi_share"}
+pi_map = {path="../pi_map"}
+pi_idtree = {path="../pi_idtree"}
+
+
+[dev-dependencies]
+pcg_rand = "0.13"
+rand_core = "0.6"
