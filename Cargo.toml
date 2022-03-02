@@ -3,6 +3,10 @@ name = "pi_graph"
 version = "0.1.0"
 authors = ["zmythleo <zmythleo@gmail.com>"]
 edition = "2021"
+description = "dag interface."
+repository = "https://github.com/GaiaWorld/pi_graph"
+license = "MIT OR Apache-2.0"
+keywords = ["pi", "dag", "graph"]
 
 [dependencies]
 log = "0.4"
