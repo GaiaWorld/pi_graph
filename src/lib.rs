@@ -538,11 +538,8 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
 
             // 有 循环引用，不符合 有向无环图
             if cycle {
-                let mut vec = Vec::new();
-                vec.extend(next_set.into_iter());
-
-                error!("graph build error, cycle ref, vec = {:?}", &vec);
-                return Result::Err(vec);
+                let n = next_set.into_iter().next().unwrap();
+                return Result::Err(self.find_cycle(n, Vec::new(), Vec::new()));
             }
 
             // 清空 此次 处理的 节点
@@ -554,6 +551,31 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
 
         let _ = replace(&mut self.graph.topological, topos);
         Result::Ok(self.graph)
+    }
+    /// 寻找循环依赖
+    fn find_cycle(self, node: K, mut nodes: Vec<K>, mut indexs: Vec<usize>) -> Vec<K> {
+        nodes.push(node.clone());
+        indexs.push(0);
+        while nodes.len() > 0 {
+            let index = nodes.len() - 1;
+            let k = &nodes[index];
+            let n = self.graph.get(k).unwrap();
+            let to = n.to();
+            let child_index = indexs[index];
+            if child_index >= to.len() {
+                nodes.pop();
+                indexs.pop();
+                continue
+            }
+            let child = to[child_index].clone();
+            if child == node {
+                return nodes
+            }
+            indexs[index] += 1;
+            nodes.push(child);
+            indexs.push(0);
+        }
+        nodes
     }
 }
 
@@ -707,7 +729,7 @@ mod tests {
 
         assert_eq!(graph.is_err(), true);
         if let Err(r) = graph {
-            assert_eq!(&r, &[2]);
+            assert_eq!(&r, &[2,3]);
         }
     }
 
@@ -814,7 +836,7 @@ mod tests {
 
         assert_eq!(graph.is_err(), true);
         if let Err(v) = graph {
-            assert_eq!(&v, &[5, 10]);
+            assert_eq!(&v, &[5, 10,11]);
         }
     }
 }
