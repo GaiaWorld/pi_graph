@@ -4,7 +4,7 @@ use core::hash::Hash;
 use log::{debug, error};
 use pi_hash::{XHashMap, XHashSet};
 use pi_share::ShareUsize;
-use std::{fmt::Debug, mem::replace, option::Iter, sync::atomic::Ordering, thread::current};
+use std::{fmt::Debug, mem::replace, option::Iter, sync::atomic::Ordering};
 
 /// 有向无环图
 /// K 节点的键
@@ -579,6 +579,7 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use log::info;
 
