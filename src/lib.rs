@@ -365,6 +365,14 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
         self.graph.map.get(key).is_some()
     }
 
+	/// 取到对应节点的引用
+    pub fn get_node(&self, key: &K) -> Option<&T> {
+        match self.graph.map.get(key) {
+			Some(r) => Some(&r.value),
+			None => None
+		}
+    }
+
     /// 添加 节点
     pub fn node(mut self, key: K, value: T) -> Self {
         self.graph.map.insert(
