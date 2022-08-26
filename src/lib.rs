@@ -6,6 +6,8 @@ use pi_hash::{XHashMap, XHashSet};
 use pi_share::ShareUsize;
 use std::{fmt::Debug, mem::replace, option::Iter, sync::atomic::Ordering};
 
+
+
 /// 有向无环图
 /// K 节点的键
 /// T 节点的值
@@ -365,14 +367,6 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
         self.graph.map.get(key).is_some()
     }
 
-	/// 取到对应节点的引用
-    pub fn get_node(&self, key: &K) -> Option<&T> {
-        match self.graph.map.get(key) {
-			Some(r) => Some(&r.value),
-			None => None
-		}
-    }
-
     /// 添加 节点
     pub fn node(mut self, key: K, value: T) -> Self {
         self.graph.map.insert(
@@ -491,9 +485,12 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
         // 没有 入点，是 循环图
         if topos.is_empty() && !self.graph.map.is_empty() {
             let mut vec = vec![];
-            vec.extend(self.graph.map.keys().cloned());
+			let map = replace(&mut self.graph.map, XHashMap::default());
+            vec.extend(map.keys().map(|k|{k.clone()}));
 
-            error!("graph build error, no from node, cycle's node = {:?}", &vec);
+			let r = map.into_iter().map(|(k, v)| {(k, v.value)}).collect::<Vec<(K, T)>>();
+
+            pi_print_any::out_any!(error, "graph build error, no from node, cycle's node = {:?}", &r);
             return Result::Err(vec);
         }
 
@@ -547,7 +544,10 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
             // 有 循环引用，不符合 有向无环图
             if cycle {
                 let n = next_set.into_iter().next().unwrap();
-                return Result::Err(self.find_cycle(n, Vec::new(), Vec::new()));
+				let mut cycle_keys = Vec::new();
+				let cycle = self.find_cycle(n, &mut cycle_keys, Vec::new());
+				pi_print_any::out_any!(error, "graph is cycle, they make cycle: {:?}", cycle);
+                return Result::Err(cycle_keys);
             }
 
             // 清空 此次 处理的 节点
@@ -561,8 +561,8 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
         Result::Ok(self.graph)
     }
     /// 寻找循环依赖
-    fn find_cycle(self, node: K, mut nodes: Vec<K>, mut indexs: Vec<usize>) -> Vec<K> {
-        nodes.push(node.clone());
+    fn find_cycle(mut self, node: K, nodes: &mut Vec<K>, mut indexs: Vec<usize>) -> Vec<(K, T)> {
+		nodes.push(node.clone());
         indexs.push(0);
         while nodes.len() > 0 {
             let index = nodes.len() - 1;
@@ -577,13 +577,13 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
             }
             let child = to[child_index].clone();
             if child == node {
-                return nodes
+                break;
             }
             indexs[index] += 1;
             nodes.push(child);
             indexs.push(0);
         }
-        nodes
+        nodes.iter().map(|k| {(k.clone(), self.graph.map.remove(k).unwrap().value)}).collect()
     }
 }
 
@@ -845,7 +845,7 @@ mod tests {
 
         assert_eq!(graph.is_err(), true);
         if let Err(v) = graph {
-            assert_eq!(&v, &[5, 10,11]);
+            assert_eq!(&v, &[5, 10, 11]);
         }
     }
 }
