@@ -484,14 +484,24 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
 
         // 没有 入点，是 循环图
         if topos.is_empty() && !self.graph.map.is_empty() {
-            let mut vec = vec![];
-			let map = replace(&mut self.graph.map, XHashMap::default());
-            vec.extend(map.keys().map(|k|{k.clone()}));
+            // let mut vec = vec![];
+			// let map = replace(&mut self.graph.map, XHashMap::default());
+            // vec.extend(map.keys().map(|k|{k.clone()}));
 
-			let r = map.into_iter().map(|(k, v)| {(k, v.value)}).collect::<Vec<(K, T)>>();
+			// let r = map.into_iter().map(|(k, v)| {(k, v.value)}).collect::<Vec<(K, T)>>();
+			let keys = self.graph.map.keys().map(|k|{k.clone()}).collect::<Vec<K>>();
+			let mut iter = keys.into_iter();
+			while let Some(n) = iter.next() {
+				let mut cycle_keys = Vec::new();
+				self.find_cycle(n, &mut cycle_keys, Vec::new());
 
-            pi_print_any::out_any!(error, "graph build error, no from node, cycle's node = {:?}", &r);
-            return Result::Err(vec);
+				if cycle_keys.len() > 0 {
+					let cycle: Vec<(K, T)> = cycle_keys.iter().map(|k| {(k.clone(), self.graph.map.remove(k).unwrap().value)}).collect();
+					pi_print_any::out_any!(error, "graph build error, no from node, they make cycle: {:?}", cycle);
+					return Result::Err(cycle_keys);
+				}
+			}
+            return Result::Err(Vec::new());
         }
 
         // 下个循环 要处理的 节点Key
@@ -543,11 +553,18 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
 
             // 有 循环引用，不符合 有向无环图
             if cycle {
-                let n = next_set.into_iter().next().unwrap();
-				let mut cycle_keys = Vec::new();
-				let cycle = self.find_cycle(n, &mut cycle_keys, Vec::new());
-				pi_print_any::out_any!(error, "graph is cycle, they make cycle: {:?}", cycle);
-                return Result::Err(cycle_keys);
+				let mut iter = next_set.into_iter();
+				while let Some(n) = iter.next() {
+					let mut cycle_keys = Vec::new();
+					self.find_cycle(n, &mut cycle_keys, Vec::new());
+
+					if cycle_keys.len() > 0 {
+						let cycle: Vec<(K, T)> = cycle_keys.iter().map(|k| {(k.clone(), self.graph.map.remove(k).unwrap().value)}).collect();
+						pi_print_any::out_any!(error, "graph is cycle, they make cycle: {:?}", cycle);
+						return Result::Err(cycle_keys);
+					}
+				}
+				return Result::Err(Vec::new());
             }
 
             // 清空 此次 处理的 节点
@@ -561,7 +578,7 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
         Result::Ok(self.graph)
     }
     /// 寻找循环依赖
-    fn find_cycle(mut self, node: K, nodes: &mut Vec<K>, mut indexs: Vec<usize>) -> Vec<(K, T)> {
+    fn find_cycle(&mut self, node: K, nodes: &mut Vec<K>, mut indexs: Vec<usize>) {
 		nodes.push(node.clone());
         indexs.push(0);
         while nodes.len() > 0 {
@@ -583,7 +600,6 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
             nodes.push(child);
             indexs.push(0);
         }
-        nodes.iter().map(|k| {(k.clone(), self.graph.map.remove(k).unwrap().value)}).collect()
     }
 }
 
@@ -670,6 +686,37 @@ mod tests {
         assert_eq!(graph.to(), &[1, 2, 3]);
 
         assert_eq!(graph.topological_sort(), &[1, 2, 3]);
+    }
+
+	// 测试 无边 的 图
+    #[test]
+    fn test_no_edge1() {
+        setup_logger();
+
+        // 1 2 3
+        let graph = NGraphBuilder::new()
+            .node(1, 1)
+            .node(2, 2)
+            .node(3, 3)
+			.node(4, 4)
+			.edge(1, 2)
+            .edge(1, 3)
+			.edge(3, 2)
+			.edge(2, 4)
+            .build();
+
+        // assert_eq!(graph.is_ok(), true);
+
+        // let graph = graph.unwrap();
+        // assert_eq!(graph.node_count(), 3);
+
+        // assert_eq!(graph.from_len(), 3);
+        // assert_eq!(graph.from(), &[1, 2, 3]);
+
+        // assert_eq!(graph.to_len(), 3);
+        // assert_eq!(graph.to(), &[1, 2, 3]);
+
+        // assert_eq!(graph.topological_sort(), &[1, 2, 3]);
     }
 
     // 测试 简单的 图
