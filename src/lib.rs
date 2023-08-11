@@ -483,43 +483,47 @@ impl<K: Key, T> NGraphBuilder<K, T> {
     /// 构建图
     /// 返回Graph，或者 回环的节点
     pub fn build(mut self) -> Result<NGraph<K, T>, Vec<K>> {
+		self.graph.from.clear();
+		self.graph.to.clear();
+		self.graph.topological.clear();
 		let mut counts = VecMap::with_capacity(self.graph.map.len());
+		let mut graph = &mut self.graph;
 		// 已经处理过的节点Key
-        let mut topos: Vec<K> = Vec::with_capacity(self.graph.map.len());
+        let NGraph{topological, from, to, map, ..} = &mut graph;
 
         // 计算开头 和 结尾的 节点
-        for (k, v) in self.graph.map.iter() {
+        for (k, v) in map.iter() {
             // 开头：没有入边的点
             if v.from.is_empty() {
-                self.graph.from.push(k);
+                from.push(k);
             }
 
             // 结尾：没有出边的点
             if v.to.is_empty() {
-                self.graph.to.push(k);
+                to.push(k);
             }
 
 			counts.insert(key_index(k), v.from.len());
         }
 
-        debug!("graph's from = {:?}", self.graph.from());
-		let mut queue = self.graph.from.iter().copied().collect::<VecDeque<K>>();
+        debug!("graph's from = {:?}", from);
+		let mut queue = from.iter().copied().collect::<VecDeque<K>>();
         while let Some(k) = queue.pop_front() {
-            topos.push(k);
+            topological.push(k);
 			
             // 处理 from 的 下一层
-            let node = self.graph.get(k).unwrap();
+            let node = map.get(k).unwrap();
 			debug!("from = {:?}, to: {:?}", k, node.to());
             // 遍历节点的后续节点
             for to in node.to()  {
-				counts[key_index(*to)] -= 1;
 				debug!("graph's each = {:?}, count = {:?}", to, counts[key_index(*to)]);
+				counts[key_index(*to)] -= 1;
                 // handle_set.insert(*to, ());
 				if counts[key_index(*to)] == 0 {
 					queue.push_back(*to);
 				}
                 // // 即将处理：将节点的计数加1
-                // let n = self.graph.map.get_mut(*to).unwrap();
+                // let n = map.get_mut(*to).unwrap();
                 // n.add_count(1);
 
                 // debug!(
@@ -532,19 +536,21 @@ impl<K: Key, T> NGraphBuilder<K, T> {
         }
 
 		// 如果拓扑排序列表的节点数等于图中的总节点数，则返回拓扑排序列表，否则返回空列表（说明图中存在环路）
-		if topos.len() == self.graph.map.len() {
-			self.graph.topological = topos;
+		if topological.len() == map.len() {
+			// topological = topos;
 			return Ok(self.graph);
+		} else {
+			topological.clear();
 		}
 
-		let keys = self.graph.map.keys().map(|k|{k.clone()}).filter(|r| {!topos.contains(r)}).collect::<Vec<K>>();
+		let keys = map.keys().map(|k|{k.clone()}).filter(|r| {!topological.contains(r)}).collect::<Vec<K>>();
 		let mut iter = keys.into_iter();
 		while let Some(n) = iter.next() {
 			let mut cycle_keys = Vec::new();
-			self.find_cycle(n, &mut cycle_keys, Vec::new());
+			Self::find_cycle(map, n, &mut cycle_keys, Vec::new());
 
 			if cycle_keys.len() > 0 {
-				let cycle: Vec<(K, T)> = cycle_keys.iter().map(|k| {(k.clone(), self.graph.map.remove(*k).unwrap().value)}).collect();
+				let cycle: Vec<(K, T)> = cycle_keys.iter().map(|k| {(k.clone(), map.remove(*k).unwrap().value)}).collect();
 				pi_print_any::out_any!(error, "graph build error, no from node, they make cycle: {:?}", cycle);
 				return Result::Err(cycle_keys);
 			}
@@ -552,13 +558,13 @@ impl<K: Key, T> NGraphBuilder<K, T> {
 		return Result::Err(Vec::new());
     }
     /// 寻找循环依赖
-    fn find_cycle(&mut self, node: K, nodes: &mut Vec<K>, mut indexs: Vec<usize>) {
+    fn find_cycle(map: &SecondaryMap<K, NGraphNode<K, T>>, node: K, nodes: &mut Vec<K>, mut indexs: Vec<usize>) {
 		nodes.push(node.clone());
         indexs.push(0);
         while nodes.len() > 0 {
             let index = nodes.len() - 1;
             let k = &nodes[index];
-            let n = self.graph.get(*k).unwrap();
+            let n = map.get(*k).unwrap();
             let to = n.to();
             let child_index = indexs[index];
             if child_index >= to.len() {
