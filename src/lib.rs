@@ -429,6 +429,7 @@ impl<K: Key, T> NGraphBuilder<K, T> {
 
     /// 添加 节点
     pub fn node(&mut self, key: K, value: T) -> &mut Self {
+		log::debug!("add node={:?}", key);
         self.graph.map.insert(
             key.clone(),
             NGraphNode {
@@ -445,6 +446,7 @@ impl<K: Key, T> NGraphBuilder<K, T> {
     /// 添加 边
     pub fn edge(&mut self, from: K, to: K) -> &mut Self {
 		if let Some([from_node, to_node]) = self.graph.map.get_disjoint_mut([from, to]) {
+			log::debug!("add edge=({:?}, {:?})", from, to);
 			if from_node.add_edge_to(to) {
 				to_node.from.push(from);
 			}
@@ -455,6 +457,7 @@ impl<K: Key, T> NGraphBuilder<K, T> {
     /// 移除 节点
     pub fn remove_node(&mut self, key: K) -> &mut Self {
 		if let Some(node) = self.graph.map.remove(key) {
+			log::debug!("remove node={:?}, from={:?}, to={:?}", key, &node.from, &node.to);
 			for f in node.from.iter() {
 				self.graph.map.get_mut(*f).unwrap().remove_edge_to(key);
 			}
@@ -471,6 +474,7 @@ impl<K: Key, T> NGraphBuilder<K, T> {
 		if let Some(from_node) = self.graph.map.get_mut(from) {
 			if from_node.remove_edge_to(to) {
 				self.graph.map.get_mut(to).unwrap().remove_edge_from(from);
+				log::debug!("remove edge=({:?}, {:?})", from, to);
 			}
 		}
         self
