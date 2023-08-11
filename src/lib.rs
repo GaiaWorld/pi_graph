@@ -1,17 +1,15 @@
 //! 有向无环图
 
-use core::hash::Hash;
 use log::{debug, error};
-use pi_hash::{XHashMap, XHashSet};
-use pi_share::ShareUsize;
-use std::{fmt::Debug, mem::replace, option::Iter, sync::atomic::Ordering};
-
-
+use std::{fmt::Debug, mem::replace, option::Iter, collections::VecDeque};
+use pi_slotmap::{Key, SecondaryMap};
+use pi_map::vecmap::VecMap;
 
 /// 有向无环图
 /// K 节点的键
 /// T 节点的值
-pub trait DirectedGraph<K: Hash + Eq + Sized, T> {
+// #[delegate]
+pub trait DirectedGraph<K: Key, T> {
     /// 节点
     type Node: DirectedGraphNode<K, T>;
 
@@ -19,10 +17,10 @@ pub trait DirectedGraph<K: Hash + Eq + Sized, T> {
     // type NodeIter: Iterator<Item = &'a K>;
 
     /// 根据 key 取 节点
-    fn get(&self, key: &K) -> Option<&Self::Node>;
+    fn get(&self, key: K) -> Option<&Self::Node>;
 
     /// 根据 key 取 节点
-    fn get_mut(&mut self, key: &K) -> Option<&mut Self::Node>;
+    fn get_mut(&mut self, key: K) -> Option<&mut Self::Node>;
 
     /// 取节点的数量
     fn node_count(&self) -> usize;
@@ -59,7 +57,7 @@ pub trait DirectedGraph<K: Hash + Eq + Sized, T> {
 }
 
 /// 有向无环图 节点
-pub trait DirectedGraphNode<K: Hash + Eq + Sized, T> {
+pub trait DirectedGraphNode<K: Key, T> {
     // /// 迭代器的关联类型，指定了迭代器`Item`为`K`
     // type NodeIter: Iterator<Item = &'a K>;
 
@@ -84,14 +82,14 @@ pub trait DirectedGraphNode<K: Hash + Eq + Sized, T> {
     /// 取值的可变引用
     fn value_mut(&mut self) -> &mut T;
 
-    /// 读取计数器
-    fn load_count(&self) -> usize;
+    // /// 读取计数器
+    // fn load_count(&self) -> usize;
 
-    /// 增加计数器的值
-    fn add_count(&self, add: usize) -> usize;
+    // /// 增加计数器的值
+    // fn add_count(&mut self, add: usize) -> usize;
 
-    /// 设置计数器的值
-    fn set_count(&self, count: usize);
+    // /// 设置计数器的值
+    // fn set_count(&mut self, count: usize);
 
     // /// 获取from节点的迭代器
     // fn from(&self) -> Self::NodeIter;
@@ -114,9 +112,9 @@ impl<'a, K> Iterator for NodeIterator<'a, K> {
 
 /// 图
 #[derive(Default, Debug)]
-pub struct NGraph<K: Hash + Eq + Sized + Debug, T> {
+pub struct NGraph<K: Key, T> {
     // 所有节点
-    map: XHashMap<K, NGraphNode<K, T>>,
+    map: SecondaryMap<K, NGraphNode<K, T>>,
 
     // 入度为0 的 节点
     from: Vec<K>,
@@ -130,7 +128,7 @@ pub struct NGraph<K: Hash + Eq + Sized + Debug, T> {
 
 /// 图节点
 #[derive(Debug)]
-pub struct NGraphNode<K: Hash + Eq + Sized + Debug, T> {
+pub struct NGraphNode<K: Key, T> {
     // 该节点的 入度节点
     from: Vec<K>,
 
@@ -140,31 +138,79 @@ pub struct NGraphNode<K: Hash + Eq + Sized + Debug, T> {
     key: K,
     // 值
     value: T,
-    // 引用计数
-    count: ShareUsize,
 }
 
-impl<K: Clone + Hash + Eq + Sized + Debug, T: Clone> Clone for NGraphNode<K, T> {
+impl<K: Key, T> NGraphNode<K, T>{
+	// 到 from 节点删掉 to
+	#[inline]
+	fn remove_edge_from(&mut self, from: K) -> bool {
+        if let Some(index) = self.from.iter().position(|v| *v == from) {
+            self.from.swap_remove(index);
+			true
+        } else {
+			false
+		}
+    }
+
+	// 到 to 节点删掉 from
+	#[inline]
+	fn remove_edge_to(&mut self, to: K) -> bool {
+        if let Some(index) = self.to.iter().position(|v| *v == to) {
+            self.to.swap_remove(index);
+			true
+        } else {
+			false
+		}
+    }
+
+	// 添加to
+	#[inline]
+    fn add_edge_to(&mut self, to: K) -> bool {
+        match self.to.iter().position(|s| *s == to) {
+            Some(_) => false,
+            None => {
+                self.to.push(to);
+                true
+            }
+        }
+    }
+
+    // // 添加from
+    // #[inline]
+    // fn add_edge_from(&mut self, from: K) -> bool {
+    //     match self.from.iter().position(|s| *s == from) {
+    //         Some(_) => false,
+    //         None => {
+    //             self.from.push(from);
+	// 			true
+    //         }
+    //     }
+    // }
+}
+
+impl<K: Key, T: Clone> Clone for NGraphNode<K, T> {
     fn clone(&self) -> Self {
         Self {
             from: self.from.clone(),
             to: self.to.clone(),
             key: self.key.clone(),
             value: self.value.clone(),
-            count: ShareUsize::new(self.count.load(Ordering::Relaxed)),
         }
     }
 }
 
-impl<K: Hash + Eq + Sized + Debug, T> DirectedGraphNode<K, T> for NGraphNode<K, T> {
-    fn from_len(&self) -> usize {
+impl<K: Key, T> DirectedGraphNode<K, T> for NGraphNode<K, T> {
+    #[inline]
+	fn from_len(&self) -> usize {
         self.from.len()
     }
 
+	#[inline]
     fn to_len(&self) -> usize {
         self.to.len()
     }
 
+	#[inline]
     fn from(&self) -> &[K] {
         &self.from[..]
     }
@@ -173,32 +219,42 @@ impl<K: Hash + Eq + Sized + Debug, T> DirectedGraphNode<K, T> for NGraphNode<K, 
         &self.to[..]
     }
 
+	#[inline]
     fn key(&self) -> &K {
         &self.key
     }
 
+	#[inline]
     fn value(&self) -> &T {
         &self.value
     }
 
+	#[inline]
     fn value_mut(&mut self) -> &mut T {
         &mut self.value
     }
 
-    fn load_count(&self) -> usize {
-        self.count.load(Ordering::Relaxed)
-    }
+	// #[inline]
+    // fn load_count(&self) -> usize {
+	// 	self.count
+    //     // self.count.load(Ordering::Relaxed)
+    // }
 
-    fn add_count(&self, add: usize) -> usize {
-        self.count.fetch_add(add, Ordering::SeqCst)
-    }
+	// #[inline]
+    // fn add_count(&mut self, add: usize) -> usize {
+	// 	self.count += add;
+	// 	self.count
+    //     // self.count.fetch_add(add, Ordering::SeqCst)
+    // }
 
-    fn set_count(&self, count: usize) {
-        self.count.store(count, Ordering::SeqCst)
-    }
+	// #[inline]
+    // fn set_count(&mut self, count: usize) {
+	// 	self.count = count;
+    //     // self.count.store(count, Ordering::SeqCst)
+    // }
 }
 
-impl<K: Hash + Eq + Sized + Debug, T> NGraph<K, T> {
+impl<K: Key, T> NGraph<K, T> {
     pub(crate) fn new() -> Self {
         Self {
             map: Default::default(),
@@ -208,31 +264,31 @@ impl<K: Hash + Eq + Sized + Debug, T> NGraph<K, T> {
         }
     }
 
-    /// 重置 图
-    pub fn reset(&self) {
-        for n in self.map.values() {
-            n.set_count(0)
-        }
-    }
+    // /// 重置 图
+    // pub fn reset(&self) {
+    //     for n in self.map.values() {
+    //         n.set_count(0)
+    //     }
+    // }
 }
 
-impl<K: Hash + Eq + Sized + Debug, T> NGraph<K, T> {
+impl<K: Key, T> NGraph<K, T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.map.values().into_iter().map(|v| v.value())
     }
 }
 
-impl<K: Hash + Eq + Sized + Debug, T> DirectedGraph<K, T> for NGraph<K, T> {
+impl<K: Key, T> DirectedGraph<K, T> for NGraph<K, T> {
     // /// 迭代器的关联类型，指定了迭代器`Item`为`K`
     // type NodeIter = NodeIterator<'a, K>;
 
     type Node = NGraphNode<K, T>;
 
-    fn get(&self, key: &K) -> Option<&Self::Node> {
+    fn get(&self, key: K) -> Option<&Self::Node> {
         self.map.get(key)
     }
 
-    fn get_mut(&mut self, key: &K) -> Option<&mut Self::Node> {
+    fn get_mut(&mut self, key: K) -> Option<&mut Self::Node> {
         self.map.get_mut(key)
     }
 
@@ -288,52 +344,52 @@ impl<K: Hash + Eq + Sized + Debug, T> DirectedGraph<K, T> for NGraph<K, T> {
     // }
 }
 
-impl<K: Clone + Hash + Eq + Sized + Debug, T: Clone> NGraph<K, T> {
+impl<K: Key, T: Clone> NGraph<K, T> {
     /// 遍历 局部图
-    pub fn gen_graph_from_keys(&self, keys: &[K]) -> Self {
+    pub fn gen_graph_from_keys(&self, finish: &[K]) -> Self {
         let mut builder = NGraphBuilder::new();
 
-        debug!("gen_graph_from_keys, param keys = {:?}", keys);
+        debug!("gen_graph_from_keys, param keys = {:?}", finish);
 
         let mut current_keys = vec![];
-        for k in keys {
+        for k in finish {
             current_keys.push(k.clone());
 
-            let n = self.map.get(k).unwrap();
+            let n = self.map.get(k.clone()).unwrap();
 
             // 防止 keys的 重复 元素
-            if !builder.has_node(k) {
+            if !builder.has_node(*k) {
                 debug!("gen_graph_from_keys, add node k = {:?}", k);
-                builder = builder.node(k.clone(), n.value.clone());
+                builder.node(*k, n.value.clone());
             }
         }
 
         while !current_keys.is_empty() {
             debug!("gen_graph_from_keys, current_keys = {:?}", current_keys);
 
-            let mut next_keys = vec![];
+            let mut from_keys = vec![];
 
             for curr in current_keys.iter() {
-                let curr_node = self.map.get(curr).unwrap();
+                let curr_node = self.map.get(curr.clone()).unwrap();
 
                 // 下一轮 出点
-                for next in curr_node.to() {
-                    let next_node = self.map.get(next).unwrap();
+                for from in curr_node.from() {
+                    let from_node = self.map.get(from.clone()).unwrap();
 
-                    if !builder.has_node(next) {
-                        debug!("gen_graph_from_keys, add node next = {:?}", next);
-                        builder = builder.node(next.clone(), next_node.value.clone());
+                    if !builder.has_node(*from) {
+                        debug!("gen_graph_from_keys, add node next = {:?}", from);
+                        builder.node(from.clone(), from_node.value.clone());
                     }
 
-                    debug!("gen_graph_from_keys, add edge = ({:?}, {:?})", curr, next);
-                    builder = builder.edge(curr.clone(), next.clone());
-                    next_keys.push(next.clone());
+                    debug!("gen_graph_from_keys, add edge = ({:?}, {:?})", from, curr);
+                    builder.edge(from.clone(), curr.clone());
+                    from_keys.push(from.clone());
                 }
             }
 
-            debug!("gen_graph_from_keys, next_keys = {:?}", next_keys);
+            debug!("gen_graph_from_keys, from_keys = {:?}", from_keys);
 
-            let _ = replace(&mut current_keys, next_keys);
+            let _ = replace(&mut current_keys, from_keys);
         }
 
         builder.build().unwrap()
@@ -341,11 +397,11 @@ impl<K: Clone + Hash + Eq + Sized + Debug, T: Clone> NGraph<K, T> {
 }
 
 /// 图 构建器
-pub struct NGraphBuilder<K: Hash + Eq + Sized + Debug, T> {
+pub struct NGraphBuilder<K: Key, T> {
     graph: NGraph<K, T>,
 }
 
-impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
+impl<K: Key, T> NGraphBuilder<K, T> {
     /// 创建 默认
     pub fn new() -> Self {
         NGraphBuilder {
@@ -354,21 +410,25 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
     }
 
     /// 用已有的图 重新 构建
-    pub fn new_with_graph(mut graph: NGraph<K, T>) -> Self {
-        graph.from.clear();
-        graph.to.clear();
-        graph.topological.clear();
+    pub fn new_with_graph(graph: NGraph<K, T>) -> Self {
+        // graph.from.clear();
+        // graph.to.clear();
+        // graph.topological.clear();
 
         NGraphBuilder { graph }
     }
 
+	pub fn graph(&self) -> &NGraph<K, T> {
+        &self.graph
+    }
+
     /// 对应节点是否存在
-    pub fn has_node(&self, key: &K) -> bool {
-        self.graph.map.get(key).is_some()
+    pub fn has_node(&self, key: K) -> bool {
+        self.graph.map.contains_key(key)
     }
 
     /// 添加 节点
-    pub fn node(mut self, key: K, value: T) -> Self {
+    pub fn node(&mut self, key: K, value: T) -> &mut Self {
         self.graph.map.insert(
             key.clone(),
             NGraphNode {
@@ -376,7 +436,6 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
                 to: Default::default(),
                 key,
                 value,
-                count: Default::default(),
             },
         );
 
@@ -384,198 +443,109 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
     }
 
     /// 添加 边
-    pub fn edge(mut self, from: K, to: K) -> Self {
-        let node = self.graph.map.get_mut(&from).unwrap();
-        node.to.push(to.clone());
-
-        let node = self.graph.map.get_mut(&to).unwrap();
-        node.from.push(from);
-
+    pub fn edge(&mut self, from: K, to: K) -> &mut Self {
+		if let Some([from_node, to_node]) = self.graph.map.get_disjoint_mut([from, to]) {
+			if from_node.add_edge_to(to) {
+				to_node.from.push(from);
+			}
+		}
         self
     }
 
     /// 移除 节点
-    pub fn remove_node(mut self, key: &K) -> Self {
-        let from;
-        let to;
-        {
-            let node = self.graph.get(&key).unwrap();
-            from = node.from().to_vec();
-            to = node.to().to_vec();
-        }
-
-        for f in from {
-            self.remove_edge_impl(&f, key);
-        }
-
-        for t in to {
-            self.remove_edge_impl(key, &t);
-        }
-        self.graph.map.remove(&key);
-
+    pub fn remove_node(&mut self, key: K) -> &mut Self {
+		if let Some(node) = self.graph.map.remove(key) {
+			for f in node.from.iter() {
+				self.graph.map.get_mut(*f).unwrap().remove_edge_to(key);
+			}
+	
+			for t in node.to.iter() {
+				self.graph.map.get_mut(*t).unwrap().remove_edge_from(key);
+			}
+		}
         self
     }
 
     /// 移除 边
-    pub fn remove_edge(mut self, from: &K, to: &K) -> Self {
-        self.remove_edge_impl(from, to);
+    pub fn remove_edge(&mut self, from: K, to: K) -> &mut Self {
+		if let Some(from_node) = self.graph.map.get_mut(from) {
+			if from_node.remove_edge_to(to) {
+				self.graph.map.get_mut(to).unwrap().remove_edge_from(from);
+			}
+		}
         self
-    }
-
-    // 移除 边，实现
-    fn remove_edge_impl(&mut self, from: &K, to: &K) {
-        // 到 from 节点删掉 to
-        let from_node = self.graph.map.get_mut(&from).unwrap();
-        if let Some(index) = from_node.to.iter().position(|v| *v == *to) {
-            from_node.to.swap_remove(index);
-        }
-
-        // 到 to 节点删掉 from
-        let to_node = self.graph.map.get_mut(&to).unwrap();
-        if let Some(index) = to_node.from.iter().position(|v| *v == *from) {
-            to_node.from.swap_remove(index);
-        }
     }
 
     /// 构建图
     /// 返回Graph，或者 回环的节点
     pub fn build(mut self) -> Result<NGraph<K, T>, Vec<K>> {
+		let mut counts = VecMap::with_capacity(self.graph.map.len());
+		// 已经处理过的节点Key
+        let mut topos: Vec<K> = Vec::with_capacity(self.graph.map.len());
+
         // 计算开头 和 结尾的 节点
         for (k, v) in self.graph.map.iter() {
             // 开头：没有入边的点
             if v.from.is_empty() {
-                self.graph.from.push(k.clone());
+                self.graph.from.push(k);
             }
 
             // 结尾：没有出边的点
             if v.to.is_empty() {
-                self.graph.to.push(k.clone());
+                self.graph.to.push(k);
             }
-        }
 
-        // 已经处理过的节点Key
-        let mut topos = Vec::new();
-        // 即将处理的节点Key
-        let mut handle_set = XHashSet::default();
+			counts.insert(key_index(k), v.from.len());
+        }
 
         debug!("graph's from = {:?}", self.graph.from());
-
-        for k in self.graph.from() {
-            topos.push(k.clone());
-
+		let mut queue = self.graph.from.iter().copied().collect::<VecDeque<K>>();
+        while let Some(k) = queue.pop_front() {
+            topos.push(k);
+			
             // 处理 from 的 下一层
             let node = self.graph.get(k).unwrap();
+			debug!("from = {:?}, to: {:?}", k, node.to());
             // 遍历节点的后续节点
-            for to in node.to() {
-                handle_set.insert(to.clone());
+            for to in node.to()  {
+				counts[key_index(*to)] -= 1;
+				debug!("graph's each = {:?}, count = {:?}", to, counts[key_index(*to)]);
+                // handle_set.insert(*to, ());
+				if counts[key_index(*to)] == 0 {
+					queue.push_back(*to);
+				}
+                // // 即将处理：将节点的计数加1
+                // let n = self.graph.map.get_mut(*to).unwrap();
+                // n.add_count(1);
 
-                // 即将处理：将节点的计数加1
-                let n = self.graph.get(to).unwrap();
-                n.add_count(1);
-
-                debug!(
-                    "add n: k: {:?}, from:{} count:{}",
-                    to,
-                    n.from_len(),
-                    n.load_count()
-                );
+                // debug!(
+                //     "add n: k: {:?}, from:{} count:{}",
+                //     to,
+                //     n.from_len(),
+                //     n.load_count()
+                // );
             }
         }
 
-        // 没有 入点，是 循环图
-        if topos.is_empty() && !self.graph.map.is_empty() {
-            // let mut vec = vec![];
-			// let map = replace(&mut self.graph.map, XHashMap::default());
-            // vec.extend(map.keys().map(|k|{k.clone()}));
+		// 如果拓扑排序列表的节点数等于图中的总节点数，则返回拓扑排序列表，否则返回空列表（说明图中存在环路）
+		if topos.len() == self.graph.map.len() {
+			self.graph.topological = topos;
+			return Ok(self.graph);
+		}
 
-			// let r = map.into_iter().map(|(k, v)| {(k, v.value)}).collect::<Vec<(K, T)>>();
-			let keys = self.graph.map.keys().map(|k|{k.clone()}).collect::<Vec<K>>();
-			let mut iter = keys.into_iter();
-			while let Some(n) = iter.next() {
-				let mut cycle_keys = Vec::new();
-				self.find_cycle(n, &mut cycle_keys, Vec::new());
+		let keys = self.graph.map.keys().map(|k|{k.clone()}).filter(|r| {!topos.contains(r)}).collect::<Vec<K>>();
+		let mut iter = keys.into_iter();
+		while let Some(n) = iter.next() {
+			let mut cycle_keys = Vec::new();
+			self.find_cycle(n, &mut cycle_keys, Vec::new());
 
-				if cycle_keys.len() > 0 {
-					let cycle: Vec<(K, T)> = cycle_keys.iter().map(|k| {(k.clone(), self.graph.map.remove(k).unwrap().value)}).collect();
-					pi_print_any::out_any!(error, "graph build error, no from node, they make cycle: {:?}", cycle);
-					return Result::Err(cycle_keys);
-				}
+			if cycle_keys.len() > 0 {
+				let cycle: Vec<(K, T)> = cycle_keys.iter().map(|k| {(k.clone(), self.graph.map.remove(*k).unwrap().value)}).collect();
+				pi_print_any::out_any!(error, "graph build error, no from node, they make cycle: {:?}", cycle);
+				return Result::Err(cycle_keys);
 			}
-            return Result::Err(Vec::new());
-        }
-
-        // 下个循环 要处理的 节点Key
-        let mut next_set = XHashSet::default();
-
-        while handle_set.len() > 0 {
-            debug!("begin set: {:?}", handle_set);
-
-            // 只有当 这个循环 找不到任何可以处理的节点的时候，循环存在
-            let mut cycle = true;
-
-            // 遍历后续节点
-            for k in handle_set.iter() {
-                let n = self.graph.get(k).unwrap();
-                debug!(
-                    "set n: k: {:?}, from:{} count:{}",
-                    k,
-                    n.from_len(),
-                    n.load_count()
-                );
-
-                // 如果节点的计数等于from_len，表示from都处理了，节点已经就绪
-                if n.from_len() != n.load_count() {
-                    next_set.insert(k.clone());
-                } else {
-                    // 只要这一轮 有一个节点 能被处理，就没有 循环
-                    // 存在循环，当且仅当 这一轮没有任何节点得到处理
-                    cycle = false;
-
-                    // 如果 前面 已经放进去，下一轮就会出问题
-                    // demo 请参考 test_complex
-                    let _ = next_set.remove(k);
-
-                    topos.push(k.clone());
-
-                    // 将计数器归0
-                    n.set_count(0);
-
-                    // 遍历该节点的后续节点
-                    for to in n.to() {
-                        next_set.insert(to.clone());
-
-                        // 将节点的计数加1
-                        let n = self.graph.get(to).unwrap();
-                        n.add_count(1);
-                    }
-                }
-            }
-
-            // 有 循环引用，不符合 有向无环图
-            if cycle {
-				let mut iter = next_set.into_iter();
-				while let Some(n) = iter.next() {
-					let mut cycle_keys = Vec::new();
-					self.find_cycle(n, &mut cycle_keys, Vec::new());
-
-					if cycle_keys.len() > 0 {
-						let cycle: Vec<(K, T)> = cycle_keys.iter().map(|k| {(k.clone(), self.graph.map.remove(k).unwrap().value)}).collect();
-						pi_print_any::out_any!(error, "graph is cycle, they make cycle: {:?}", cycle);
-						return Result::Err(cycle_keys);
-					}
-				}
-				return Result::Err(Vec::new());
-            }
-
-            // 清空 此次 处理的 节点
-            handle_set.clear();
-
-            // 将 下批 和 这批 进行交换
-            next_set = replace(&mut handle_set, next_set);
-        }
-
-        let _ = replace(&mut self.graph.topological, topos);
-        Result::Ok(self.graph)
+		}
+		return Result::Err(Vec::new());
     }
     /// 寻找循环依赖
     fn find_cycle(&mut self, node: K, nodes: &mut Vec<K>, mut indexs: Vec<usize>) {
@@ -584,7 +554,7 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
         while nodes.len() > 0 {
             let index = nodes.len() - 1;
             let k = &nodes[index];
-            let n = self.graph.get(k).unwrap();
+            let n = self.graph.get(*k).unwrap();
             let to = n.to();
             let child_index = indexs[index];
             if child_index >= to.len() {
@@ -603,9 +573,14 @@ impl<K: Hash + Eq + Sized + Clone + Debug, T> NGraphBuilder<K, T> {
     }
 }
 
+#[inline]
+pub fn key_index<K: Key>(k: K) -> usize{
+	k.data().as_ffi() as u32 as usize
+}
+
 #[cfg(test)]
 mod tests {
-    use log::info;
+    use pi_slotmap::{DefaultKey, SlotMap};
 
     use crate::*;
 
@@ -625,7 +600,7 @@ mod tests {
     fn test_empty() {
         setup_logger();
 
-        let graph = NGraphBuilder::<u32, u32>::new().build();
+        let graph = NGraphBuilder::<DefaultKey, u32>::new().build();
 
         assert_eq!(graph.is_ok(), true);
 
@@ -645,8 +620,11 @@ mod tests {
     #[test]
     fn test_one_node() {
         setup_logger();
-
-        let graph = NGraphBuilder::new().node(10, 111).build();
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = map.insert(());
+        let mut graph = NGraphBuilder::new();
+		graph.node(node, 111);
+		let graph = graph.build();
 
         assert_eq!(graph.is_ok(), true);
 
@@ -654,25 +632,26 @@ mod tests {
         assert_eq!(graph.node_count(), 1);
 
         assert_eq!(graph.from_len(), 1);
-        assert_eq!(graph.from(), &[10]);
+        assert_eq!(graph.from(), &[node]);
 
         assert_eq!(graph.to_len(), 1);
-        assert_eq!(graph.to(), &[10]);
+        assert_eq!(graph.to(), &[node]);
 
-        assert_eq!(graph.topological_sort(), &[10]);
+        assert_eq!(graph.topological_sort(), &[node]);
     }
 
     // 测试 无边 的 图
     #[test]
     fn test_no_edge() {
         setup_logger();
-
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [map.insert(()), map.insert(()), map.insert(())];
         // 1 2 3
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-            .build();
+        let mut graph = NGraphBuilder::new();
+		graph.node(node[0], 1)
+            .node(node[1], 2)
+            .node(node[2], 3);
+		let graph = graph.build();
 
         assert_eq!(graph.is_ok(), true);
 
@@ -680,30 +659,31 @@ mod tests {
         assert_eq!(graph.node_count(), 3);
 
         assert_eq!(graph.from_len(), 3);
-        assert_eq!(graph.from(), &[1, 2, 3]);
+        assert_eq!(graph.from(), node.as_slice());
 
         assert_eq!(graph.to_len(), 3);
-        assert_eq!(graph.to(), &[1, 2, 3]);
+        assert_eq!(graph.to(), node.as_slice());
 
-        assert_eq!(graph.topological_sort(), &[1, 2, 3]);
+        assert_eq!(graph.topological_sort(), node.as_slice());
     }
 
 	// 测试 无边 的 图
     #[test]
     fn test_no_edge1() {
         setup_logger();
-
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [map.insert(()), map.insert(()), map.insert(()), map.insert(())];
         // 1 2 3
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-			.node(4, 4)
-			.edge(1, 2)
-            .edge(1, 3)
-			.edge(3, 2)
-			.edge(2, 4)
-            .build();
+        let mut graph = NGraphBuilder::new();
+        graph.node(node[0], 1)
+            .node(node[1], 2)
+            .node(node[2], 3)
+			.node(node[3], 4)
+			.edge(node[0], node[1])
+            .edge(node[0], node[2])
+			.edge(node[2], node[1])
+			.edge(node[1], node[3]);
+        let _graph = graph.build();
 
         // assert_eq!(graph.is_ok(), true);
 
@@ -723,15 +703,16 @@ mod tests {
     #[test]
     fn test_simple() {
         setup_logger();
-
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [map.insert(()), map.insert(()), map.insert(()), map.insert(())];
         // 1 --> 2 --> 3
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-            .edge(1, 2)
-            .edge(2, 3)
-            .build();
+        let mut graph = NGraphBuilder::new();
+        graph.node(node[1], 1)
+            .node(node[2], 2)
+            .node(node[3], 3)
+            .edge(node[1], node[2])
+            .edge(node[2], node[3]);
+        let graph = graph.build();
 
         assert_eq!(graph.is_ok(), true);
 
@@ -739,32 +720,33 @@ mod tests {
         assert_eq!(graph.node_count(), 3);
 
         assert_eq!(graph.from_len(), 1);
-        assert_eq!(graph.from(), &[1]);
+        assert_eq!(graph.from(), &[node[1]]);
 
         assert_eq!(graph.to_len(), 1);
-        assert_eq!(graph.to(), &[3]);
+        assert_eq!(graph.to(), &[node[3]]);
 
-        assert_eq!(graph.topological_sort(), &[1, 2, 3]);
+        assert_eq!(graph.topological_sort(), &[node[1], node[2], node[3]]);
     }
 
     // 测试 循环图
     #[test]
     fn test_cycle_graph() {
         setup_logger();
-
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [map.insert(()), map.insert(()), map.insert(()), map.insert(())];
         // 1 --> 2 --> 3 --> 1
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-            .edge(1, 2)
-            .edge(2, 3)
-            .edge(3, 1)
-            .build();
+        let mut graph = NGraphBuilder::new();
+        graph.node(node[1], 1)
+            .node(node[2], 2)
+            .node(node[3], 3)
+            .edge(node[1], node[2])
+            .edge(node[2], node[3])
+            .edge(node[3], node[1]);
+        let graph = graph.build();
 
         assert_eq!(graph.is_err(), true);
         if let Err(r) = graph {
-            assert_eq!(&r, &[1, 2, 3]);
+            assert_eq!(&r, &[node[1], node[2], node[3]]);
         }
     }
 
@@ -772,20 +754,21 @@ mod tests {
     #[test]
     fn test_cycle_local() {
         setup_logger();
-
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [map.insert(()), map.insert(()), map.insert(()), map.insert(())];
         // 1 --> 2 <--> 3
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-            .edge(1, 2)
-            .edge(2, 3)
-            .edge(3, 2)
-            .build();
+        let mut graph = NGraphBuilder::new();
+		graph.node(node[1], 1)
+            .node(node[2], 2)
+            .node(node[3], 3)
+            .edge(node[1], node[2])
+            .edge(node[2], node[3])
+            .edge(node[3], node[2]);
+        let graph = graph.build();
 
         assert_eq!(graph.is_err(), true);
         if let Err(r) = graph {
-            assert_eq!(&r, &[2,3]);
+            assert_eq!(&r, &[node[2], node[3]]);
         }
     }
 
@@ -793,54 +776,61 @@ mod tests {
     #[test]
     fn test_gen_graph() {
         setup_logger();
-
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [
+			map.insert(()), map.insert(()), map.insert(()), map.insert(()),
+			map.insert(()), map.insert(()), map.insert(()), map.insert(())
+		];
         // 7 --> 2, 6
         // 2, 3 --> 1
         // 5, 6 --> 4
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-            .node(4, 4)
-            .node(5, 5)
-            .node(6, 6)
-            .node(7, 7)
-            .edge(7, 2)
-            .edge(7, 6)
-            .edge(2, 1)
-            .edge(3, 1)
-            .edge(5, 4)
-            .edge(6, 4)
-            .build();
+        let mut graph = NGraphBuilder::new();
+        graph.node(node[1], 1)
+            .node(node[2], 2)
+            .node(node[3], 3)
+            .node(node[4], 4)
+            .node(node[5], 5)
+            .node(node[6], 6)
+            .node(node[7], 7)
+            .edge(node[7], node[2])
+            .edge(node[7], node[6])
+            .edge(node[2], node[1])
+            .edge(node[3], node[1])
+            .edge(node[5], node[4])
+            .edge(node[6], node[4]);
+        let graph = graph.build();
 
         assert_eq!(graph.is_ok(), true);
 
         let graph = graph.unwrap();
-        let g2 = graph.gen_graph_from_keys(&[7]);
-        assert_eq!(g2.node_count(), 5);
-        info!("g2 = {:?}", g2);
+        let g2 = graph.gen_graph_from_keys(&[node[7]]);
+        assert_eq!(g2.node_count(), 1);
     }
 
     // 复杂
     #[test]
     fn test_complex() {
         setup_logger();
-
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [
+			map.insert(()), map.insert(()), map.insert(()), map.insert(()),
+			map.insert(()), map.insert(()),
+		];
         // 1 --> 3
         // 2 --> 3, 4, 5
         // 4 --> 5
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-            .node(4, 4)
-            .node(5, 5)
-            .edge(1, 3)
-            .edge(2, 3)
-            .edge(2, 4)
-            .edge(2, 5)
-            .edge(4, 5)
-            .build();
+        let mut graph = NGraphBuilder::new();
+        graph.node(node[1], 1)
+            .node(node[2], 2)
+            .node(node[3], 3)
+            .node(node[4], 4)
+            .node(node[5], 5)
+            .edge(node[1], node[3])
+            .edge(node[2], node[3])
+            .edge(node[2], node[4])
+            .edge(node[2], node[5])
+            .edge(node[4], node[5]);
+        let graph = graph.build();
 
         assert_eq!(graph.is_ok(), true);
 
@@ -849,50 +839,88 @@ mod tests {
 
         assert_eq!(graph.from_len(), 2);
 
-        let mut v: Vec<i32> = graph.from().iter().cloned().collect();
+        let mut v: Vec<DefaultKey> = graph.from().iter().cloned().collect();
         v.sort();
-        assert_eq!(&v, &[1, 2]);
+        assert_eq!(&v, &[node[1], node[2]]);
 
         assert_eq!(graph.to_len(), 2);
-        let mut v: Vec<i32> = graph.to().iter().cloned().collect();
+        let mut v: Vec<DefaultKey> = graph.to().iter().cloned().collect();
         v.sort();
-        assert_eq!(&v, &[3, 5]);
+        assert_eq!(&v, &[node[3], node[5]]);
 
-        assert_eq!(graph.topological_sort(), &[2, 1, 4, 5, 3]);
+        assert_eq!(graph.topological_sort(), &[node[1], node[2], node[3], node[4], node[5]]);
     }
 
     #[test]
     fn test_graph() {
         setup_logger();
-
-        let graph = NGraphBuilder::new()
-            .node(1, 1)
-            .node(2, 2)
-            .node(3, 3)
-            .node(4, 4)
-            .node(5, 5)
-            .node(6, 6)
-            .node(7, 7)
-            .node(8, 8)
-            .node(9, 9)
-            .node(10, 10)
-            .node(11, 11)
-            .edge(1, 4)
-            .edge(2, 4)
-            .edge(2, 5)
-            .edge(3, 5)
-            .edge(4, 6)
-            .edge(4, 7)
-            .edge(5, 8)
-            .edge(9, 10)
-            .edge(10, 11)
-            .edge(11, 5)
-            .edge(5, 10)
-            .build();
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [
+			map.insert(()), map.insert(()), map.insert(()), map.insert(()),
+			map.insert(()), map.insert(()), map.insert(()), map.insert(()),
+			map.insert(()), map.insert(()), map.insert(()), map.insert(()),
+		];
+        let mut graph = NGraphBuilder::new();
+        graph.node(node[1], 1)
+            .node(node[2], 2)
+            .node(node[3], 3)
+            .node(node[4], 4)
+            .node(node[5], 5)
+            .node(node[6], 6)
+            .node(node[7], 7)
+            .node(node[8], 8)
+            .node(node[9], 9)
+            .node(node[10], 10)
+            .node(node[11], 11)
+            .edge(node[1], node[4])
+            .edge(node[2], node[4])
+            .edge(node[2], node[5])
+            .edge(node[3], node[5])
+            .edge(node[4], node[6])
+            .edge(node[4], node[7])
+            .edge(node[5], node[8])
+            .edge(node[9], node[10])
+            .edge(node[10], node[11])
+            .edge(node[11], node[5])
+            .edge(node[5], node[10]);
+        let graph = graph.build();
 
         assert_eq!(graph.is_err(), true);
         if let Err(v) = graph {
-            assert_eq!(&v, &[5, 10, 11]);
+            assert_eq!(&v, &[node[5], node[10], node[11]]);
         }
+    }
+
+	// 添加重复边、不存在节点的边、相同节点但是反向的边（循环依赖）
+    #[test]
+    fn test_add_repeat_edge() {
+        setup_logger();
+		let mut map = SlotMap::<DefaultKey, ()>::default();
+		let node = [
+			map.insert(()), map.insert(()), map.insert(()), map.insert(()),
+			map.insert(()), map.insert(()),
+		];
+        // 1 --> 3
+        // 2 --> 3, 4, 5
+        // 4 --> 5
+        let mut graph = NGraphBuilder::new();
+        graph.node(node[1], 1)
+            .node(node[2], 2)
+            .edge(node[1], node[2])
+            .edge(node[1], node[2])
+            // .edge(node[2], node[1])
+            .edge(node[2], node[3]);
+        let graph = graph.build();
+
+        assert_eq!(graph.is_ok(), true);
+
+        let graph = graph.unwrap();
+
+        let v: Vec<DefaultKey> = graph.from().iter().cloned().collect();
+        assert_eq!(&v, &[node[1]]);
+
+        let v: Vec<DefaultKey> = graph.get(node[1]).unwrap().to().iter().cloned().collect();
+        assert_eq!(&v, &[node[2]]);
+
     }
 }
