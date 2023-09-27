@@ -141,6 +141,15 @@ pub struct NGraphNode<K: Key, T> {
 }
 
 impl<K: Key, T> NGraphNode<K, T>{
+	#[inline]
+	pub fn from(&mut self) -> &[K] {
+        &self.from
+    }
+	#[inline]
+	pub fn to(&mut self) -> &[K] {
+        &self.to
+    }
+
 	// 到 from 节点删掉 to
 	#[inline]
 	fn remove_edge_from(&mut self, from: K) -> bool {
