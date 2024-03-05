@@ -1,6 +1,6 @@
 [package]
 name = "pi_graph"
-version = "0.1.8"
+version = "0.1.9"
 authors = ["zmythleo <zmythleo@gmail.com>"]
 edition = "2021"
 description = "dag interface."
@@ -14,7 +14,7 @@ pi_hash = "0.1"
 pi_share = "0.4"
 pi_print_any = "0.1"
 pi_slotmap = "0.1"
-pi_map = "0.1"
+pi_map = "0.2"
 # auto-delegate = "0.0.7"
 
 [dev-dependencies]
