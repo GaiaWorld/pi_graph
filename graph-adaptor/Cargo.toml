@@ -1,0 +1,15 @@
+[package]
+name = "pi_graph_adaptor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+description = "Composable storage-independent graph adaptors"
+
+[lib]
+name = "graph_adaptor"
+
+[dependencies]
+graph-core.workspace = true

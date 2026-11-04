@@ -1,0 +1,16 @@
+[package]
+name = "pi_graph_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+description = "Storage-independent graph capability traits and views"
+
+[lib]
+name = "graph_core"
+
+[dependencies]
+fixedbitset.workspace = true
+gat-lending-iterator.workspace = true

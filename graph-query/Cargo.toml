@@ -1,0 +1,15 @@
+[package]
+name = "pi_graph_query"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+description = "Resumable graph walkers and queries"
+
+[lib]
+name = "graph_query"
+
+[dependencies]
+graph-core.workspace = true

@@ -1,23 +1,22 @@
-[package]
-name = "pi_graph"
-version = "0.1.9"
+[workspace]
+members = ["graph-core", "graph-adaptor", "graph-algo", "graph-query", "graph-storage"]
+resolver = "2"
+
+[workspace.package]
+version = "0.4.0"
 authors = ["zmythleo <zmythleo@gmail.com>"]
 edition = "2021"
-description = "dag interface."
 repository = "https://github.com/GaiaWorld/pi_graph"
 license = "MIT OR Apache-2.0"
 keywords = ["pi", "dag", "graph"]
 
-[dependencies]
-log = "0.4"
-pi_hash = "0.1"
-pi_share = "0.4"
-pi_print_any = "0.1"
-pi_slotmap = "0.1"
-pi_map = "0.2"
-# auto-delegate = "0.0.7"
-
-[dev-dependencies]
-pcg_rand = "0.13"
-rand_core = "0.6"
-env_logger = "0.9"
+[workspace.dependencies]
+pi_slotmap = "0.5"
+pi_slot_deque = "0.5"
+graph-storage = { package = "pi_graph_storage", path = "graph-storage", version = "0.4" }
+fixedbitset = "0.5"
+graph-adaptor = { package = "pi_graph_adaptor", path = "graph-adaptor", version = "0.4" }
+gat-lending-iterator = "0.1"
+graph-core = { package = "pi_graph_core", path = "graph-core", version = "0.4" }
+graph-query = { package = "pi_graph_query", path = "graph-query", version = "0.4" }
+graph-algo = { package = "pi_graph_algo", path = "graph-algo", version = "0.4" }

@@ -1,0 +1,23 @@
+[package]
+name = "pi_graph_storage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+description = "Sparse slot-map and dense vector directed graph storage"
+
+[lib]
+name = "graph_storage"
+
+[dependencies]
+graph-core.workspace = true
+graph-query.workspace = true
+fixedbitset.workspace = true
+pi_slotmap.workspace = true
+pi_slot_deque.workspace = true
+
+[dev-dependencies]
+graph-algo.workspace = true
+graph-adaptor.workspace = true

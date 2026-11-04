@@ -1,0 +1,19 @@
+[package]
+name = "pi_graph_algo"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+description = "Generic algorithms over graph capabilities"
+
+[lib]
+name = "graph_algo"
+
+[dependencies]
+graph-core.workspace = true
+graph-query.workspace = true
+
+[dev-dependencies]
+graph-adaptor.workspace = true
